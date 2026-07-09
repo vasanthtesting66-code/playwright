@@ -1,10 +1,9 @@
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 
 
-import java.lang.reflect.Array;
-import java.util.Arrays;
+
 import java.util.List;
-import java.util.regex.Pattern;
+
 
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -19,7 +18,7 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Page.GetByRoleOptions;
 import com.microsoft.playwright.options.AriaRole;
-import com.microsoft.playwright.options.SelectOption;
+
 
 import Listeners.ExtentListeners;
 
@@ -37,7 +36,7 @@ public class LaunchBrowserTest {
     public void browserInvoke() {
         playwright = Playwright.create();
 
-        browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(false));
+        browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
 
         context = browser.newContext();
 
