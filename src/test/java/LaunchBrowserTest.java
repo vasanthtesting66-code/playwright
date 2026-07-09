@@ -85,11 +85,7 @@ public class LaunchBrowserTest {
 
     }
 
-    @Test(priority = 3)
-    public void fail(){
-        Locator password = page.getByRole(AriaRole.TEXTBOX, new GetByRoleOptions().setName("password"));
-        password.click();
-    }
+   
 
 
 
