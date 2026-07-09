@@ -1,5 +1,5 @@
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
-import static org.junit.Assert.assertThat;
+
 
 import java.lang.reflect.Array;
 import java.util.Arrays;
@@ -8,6 +8,7 @@ import java.util.regex.Pattern;
 
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Listeners;
 import org.testng.annotations.Test;
 
 import com.microsoft.playwright.Browser;
@@ -20,7 +21,9 @@ import com.microsoft.playwright.Page.GetByRoleOptions;
 import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.SelectOption;
 
+import Listeners.ExtentListeners;
 
+@Listeners(ExtentListeners.class)
 public class LaunchBrowserTest {
 
 
@@ -41,7 +44,7 @@ public class LaunchBrowserTest {
         page = context.newPage();
     }
 
-    @Test
+    @Test(priority = 1)
     public void startBrowser() throws InterruptedException {
 
 
@@ -78,9 +81,17 @@ public class LaunchBrowserTest {
         }
 
         System.out.println("Runned..........................");
+        
 
 
     }
+
+    @Test(priority = 3)
+    public void fail(){
+        Locator password = page.getByRole(AriaRole.TEXTBOX, new GetByRoleOptions().setName("password"));
+        password.click();
+    }
+
 
 
     @AfterMethod
