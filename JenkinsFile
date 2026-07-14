@@ -1,0 +1,269 @@
+@Library('my-shared-lib') _
+pipeline {
+    agent none
+
+    parameters {
+        choice(name: 'BROWSER', choices: ['chrome', 'firefox', 'edge'], description: 'Select Browser')
+        choice(name: 'ENV', choices: ['QA', 'UAT', 'PROD'], description: 'Select Environment')
+        choice(name: 'RUN_TYPE', choices: ['smoke', 'regression'], description: 'Select run type')
+    }
+
+    environment {
+        REPORT_PATH = 'test-output'
+        TEST_CLASS = 'LaunchBrowserTest'
+        APP_CRED = credentials('app-credentials')
+    }
+
+    stages {
+        stage('Checkout') {
+            agent { label 'linux' }
+            steps {
+                git branch: 'vasanth', url: 'https://github.com/vasanthtesting66-code/playwright.git'
+                stash name: 'source-code', includes: '**/*'
+            }
+        }
+
+        stage('Set App URL') {
+            agent { label 'linux' }
+            steps {
+                script {
+                    if (params.ENV == 'QA') {
+                        env.APP_URL = 'https://qa.myapp.com'
+                    } else if (params.ENV == 'UAT') {
+                        env.APP_URL = 'https://uat.myapp.com'
+                    } else {
+                        env.APP_URL = 'https://prod.myapp.com'
+                    }
+                }
+            }
+        }
+
+        stage('Build') {
+            agent { label 'linux' }
+            steps {
+                unstash 'source-code'
+                timeout(time: 5, unit: 'MINUTES') {
+                    sh 'mvn clean compile'
+                }
+                stash name: 'build-setup', includes: '**/*'
+            }
+        }
+
+        stage('Smoke Test') {
+            when {
+                expression {
+                    params.RUN_TYPE == 'smoke'
+                }
+            }
+
+            parallel {
+                stage('Chrome test') {
+                    agent { label 'windows' }
+                    steps {
+                        unstash 'build-setup'
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            timeout(time: 30, unit: 'MINUTES') {
+                                withCredentials([usernamePassword(
+                                    credentialsId: 'app-credentials',
+                                    usernameVariable: 'APP_USER',
+                                    passwordVariable: 'APP_PASS'
+                                )]) {
+                                    retry(2) {
+                                        bat "mvn test -Denv=${params.ENV} -Dbrowser=chrome -Durl=${env.APP_URL} -Dusername=%APP_USER% -Dpassword=%APP_PASS% -Dtest=${env.TEST_CLASS}"
+                                    }
+                                }
+                            }
+                        }
+                        stash name: 'test-output-chrome', includes: 'test-output/chrome/**/*', allowEmpty: true
+                    }
+                }
+
+                stage('Firefox test') {
+                    agent { label 'windows' }
+                    steps {
+                        unstash 'build-setup'
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            timeout(time: 30, unit: 'MINUTES') {
+                                withCredentials([usernamePassword(
+                                    credentialsId: 'app-credentials',
+                                    usernameVariable: 'USER_NAME',
+                                    passwordVariable: 'PASSWORD'
+                                )]) {
+                                    retry(2) {
+                                        bat "mvn test -Denv=${params.ENV} -Dbrowser=firefox -Durl=${env.APP_URL} -Dusername=%USER_NAME% -Dpassword=%PASSWORD% -Dtest=${env.TEST_CLASS}"
+                                    }
+                                }
+                            }
+                        }
+                        stash name: 'test-output-firefox', includes: 'test-output/firefox/**/*', allowEmpty: true
+                    }
+                }
+
+                stage('Edge test') {
+                    agent { label 'windows' }
+                    steps {
+                        unstash 'build-setup'
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            timeout(time: 30, unit: 'MINUTES') {
+                                withCredentials([usernamePassword(
+                                    credentialsId: 'app-credentials',
+                                    usernameVariable: 'USER_NAME',
+                                    passwordVariable: 'PASSWORD'
+                                )]) {
+                                    retry(2) {
+                                        bat "mvn test -Denv=${params.ENV} -Dbrowser=edge -Durl=${env.APP_URL} -Dusername=%USER_NAME% -Dpassword=%PASSWORD% -Dtest=${env.TEST_CLASS}"
+                                    }
+                                }
+                            }
+                        }
+                        stash name: 'test-output-edge', includes: 'test-output/edge/**/*', allowEmpty: true
+                    }
+                }
+            }
+
+            post {
+                success {
+                    echo 'Test run successfully'
+                }
+                failure {
+                    echo 'Run test failed'
+                }
+            }
+        }
+
+        stage('Regression') {
+            agent { label 'windows' }
+            when {
+                expression {
+                    params.RUN_TYPE == 'regression'
+                }
+            }
+            steps {
+                unstash 'build-setup'
+                withCredentials([usernamePassword(
+                    credentialsId: 'app-credentials',
+                    usernameVariable: 'APP_USER1',
+                    passwordVariable: 'APP_PASS1'
+                )]) {
+                    bat "mvn test -Denv=${params.ENV} -Dbrowser=${params.BROWSER} -Durl=${env.APP_URL} -Dusername=%APP_USER1% -Dpassword=%APP_PASS1% -Dtest=${env.TEST_CLASS}"
+                }
+                stash name: 'test-output-regression', includes: 'test-output/**/*', allowEmpty: true
+            }
+        }
+
+        stage('Prod Check') {
+            agent { label 'windows' }
+            when {
+                allOf {
+                    expression {
+                        params.ENV == 'PROD'
+                    }
+                    expression {
+                        params.BROWSER == 'chrome'
+                    }
+                    expression {
+                        params.RUN_TYPE == 'smoke'
+                    }
+                }
+            }
+            steps {
+                unstash 'build-setup'
+                bat "mvn test -Denv=${params.ENV} -Dbrowser=${params.BROWSER} -Durl=${env.APP_URL} -Dusername=%APP_CRED_USR% -Dpassword=%APP_CRED_PSW% -Dtest=${env.TEST_CLASS}"
+                stash name: 'test-output-prod', includes: 'test-output/**/*', allowEmpty: true
+            }
+        }
+
+        stage('Collect Report') {
+            agent { label 'windows' }
+            steps {
+                script {
+                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        unstash 'test-output-chrome'
+                    }
+                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        unstash 'test-output-firefox'
+                    }
+                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        unstash 'test-output-edge'
+                    }
+                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        unstash 'test-output-regression'
+                    }
+                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                        unstash 'test-output-prod'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+           
+            junit testResults: "${env.REPORT_PATH}/**/*.xml", allowEmptyResults: true
+            publishHTML(target: [
+                reportDir: 'playwright-report',
+                reportFiles: 'index.html',
+                reportName: 'Playwright Report',
+                keepAll: true,
+                alwaysLinkToLastBuild: true,
+                allowMissing: true
+            ])
+            publishHTML(target: [
+                reportDir: 'test-output',
+                reportFiles: 'index.html',
+                reportName: 'TestNG Report',
+                keepAll: true,
+                alwaysLinkToLastBuild: true,
+                allowMissing: true
+            ])
+            publishHTML(target: [
+                reportDir: 'Cucumber-Report',
+                reportFiles: 'index.html',
+                reportName: 'Cucumber Report',
+                keepAll: true,
+                alwaysLinkToLastBuild: true,
+                allowMissing: true
+            ])
+            publishHTML(target: [
+                reportDir: 'test-output',
+                reportFiles: 'ExtentReport.html',
+                reportName: 'Extent Report',
+                keepAll: true,
+                alwaysLinkToLastBuild: true,
+                allowMissing: true
+            ])
+             archiveArtifacts artifacts: "${env.REPORT_PATH}/**/*.html, Cucumber-Report/**/*.html, Screenshot/**/*" fingerprint: true, allowEmptyArchive: true
+        }
+        success {
+            echo 'Pipeline successfully completed'
+            mail to: 'banupriya199828@gmail.com',
+            subject: "Success: ${env.BUILD_NAME} #${env.BUILD.NUMBER}",
+            body: """
+            Job: ${env.JOB_NAME}
+            Build: #${env.BUILD_NUMBER}
+            Environment: ${params.ENV}
+            Result: SUCCESS
+            URL: ${env.BUILD_URL}
+            """
+
+        }
+        unstable {
+            echo 'Pipeline is unstable due to test failures'
+        }
+        failure {
+            echo 'Pipeline failed due to some reason'
+              emailext(
+            to: 'team@example.com',
+            subject: "FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            body: """
+            Build failed.
+
+            Job: ${env.JOB_NAME}
+            Build Number: ${env.BUILD_NUMBER}
+            URL: ${env.BUILD_URL}
+            """
+        )
+        }
+    }
+}
